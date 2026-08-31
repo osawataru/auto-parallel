@@ -1,0 +1,15 @@
+# Build outputs are reproducible and include files over GitHub's size limit.
+/build/
+
+# Upstream source archives are redundant with the extracted source trees.
+/llvm-project-8.0.0.src/*.tar.xz
+
+# Common generated files.
+*.o
+*.a
+*.so
+*.out
+*.ll
+*.dump.txt
+*.log
+.DS_Store
