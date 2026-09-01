@@ -1,0 +1,535 @@
+
+[ビルド]
+setenv priP AllPrivateDetect
+setenv redP ReductionDetect
+setenv depP DependencyCheck
+setenv dirP DirectiveInsertion
+~/Github_llvm_ln/script/cp_to_opt.sh ${priP} analysis
+~/Github_llvm_ln/script/cp_to_opt.sh ${redP} analysis
+~/Github_llvm_ln/script/cp_to_opt.sh ${depP} analysis
+~/Github_llvm_ln/script/cp_to_opt.sh ${dirP}
+~/Github_llvm_ln/script/paramget_cp_to_opt.sh 
+make LLVMDirectiveInsertion ; make opt ; notify-send built
+
+
+
+~/Github_llvm_ln/script/cp_to_opt.sh ${priP} analysis ; ~/Github_llvm_ln/script/cp_to_opt.sh ${redP} analysis ; ~/Github_llvm_ln/script/cp_to_opt.sh ${depP} analysis ; ~/Github_llvm_ln/script/cp_to_opt.sh ${dirP} ; make LLVMDirectiveInsertion ; make opt ; notify-send built
+
+~/Github_llvm_ln/script/cp_to_opt.sh ${dirP} ; make LLVMDirectiveInsertion
+
+//---
+setenv LLVM_BUILD /opt/jingukng/opt.build
+setenv LLVM_HOME ${LLVM_BUILD}/../llvm-8.0.0.src
+code ${LLVM_HOME}/include/llvm/Analysis/Passes.h
+code ${LLVM_HOME}/include/llvm/LinkAllPasses.h
+code ${LLVM_HOME}/include/llvm/InitializePasses.h
+code ${LLVM_HOME}/lib/Analysis/Analysis.cpp
+code ${LLVM_HOME}/lib/Analysis/CMakeLists.txt
+//---
+
+-- O0 --
+atax: OK
+bicg: OK
+gemm: half OK// not reduction but specified as reduction
+
+-- O3 --
+2mm: x
+3mm: x
+atax: x
+bicg: x
+correlation: x
+covariance: x
+doitgen: x
+gemm      : x
+gemver    : x
+gesummv   : x
+jacobi-2d: x
+
+setenv direcPass DirectiveInsertion
+setenv bench jacobi-2d
+setenv inputIR ~/Github_polybench_ln/IR/O3/${bench}.seq.ll 
+setenv direcIR ~/Github_polybench_ln/IR/O3/${bench}.auto_inserted.ll 
+setenv outputIR ~/Github_polybench_ln/IR/O3/${bench}.auto.ll 
+setenv optimization O3
+$opt -S -load $llvm/../lib/LLVM${direcPass}.so -directiveinsertion $inputIR -o $direcIR
+$opt -S -paramget $direcIR -o $outputIR
+setenv SCRIPT_DIR ~/Pollybench/Github_polybench/script
+${SCRIPT_DIR}/ir_compile.sh $bench auto ${optimization}
+
+
+setenv bench 2mm
+${SCRIPT_DIR}/diff_check_for_a_benchmark.sh $bench auto ${optimization}
+setenv bench 3mm
+${SCRIPT_DIR}/diff_check_for_a_benchmark.sh $bench auto ${optimization}
+setenv bench atax
+${SCRIPT_DIR}/diff_check_for_a_benchmark.sh $bench auto ${optimization}
+setenv bench bicg
+${SCRIPT_DIR}/diff_check_for_a_benchmark.sh $bench auto ${optimization}
+setenv bench correlation
+${SCRIPT_DIR}/diff_check_for_a_benchmark.sh $bench auto ${optimization}
+setenv bench covariance
+${SCRIPT_DIR}/diff_check_for_a_benchmark.sh $bench auto ${optimization}
+setenv bench doitgen
+${SCRIPT_DIR}/diff_check_for_a_benchmark.sh $bench auto ${optimization}
+setenv bench gemm      
+${SCRIPT_DIR}/diff_check_for_a_benchmark.sh $bench auto ${optimization}
+setenv bench gemver    
+${SCRIPT_DIR}/diff_check_for_a_benchmark.sh $bench auto ${optimization}
+setenv bench gesummv   
+${SCRIPT_DIR}/diff_check_for_a_benchmark.sh $bench auto ${optimization}
+setenv bench jacobi-2d
+${SCRIPT_DIR}/diff_check_for_a_benchmark.sh $bench auto ${optimization}
+
+
+
+/*
+
+  [DependencyCheck] checking: 
+  Dep of store side:   store i32 %add, i32* %arrayidx5, align 4
+  Dep of load side:   %6 = load i32, i32* %arrayidx5, align 4
+      common nesting levels = 2
+      maximum nesting levels = 2
+      SrcSCEV = {{((4 * (sext i32 %2 to i64))<nsw> + (12 * (sext i32 %i.promoted to i64))<nsw> + @A),+,(12 * (sext i32 %5 to i64))<nsw>}<nsw><%for.cond>,+,(4 * (sext i32 %4 to i64))<nsw>}<nsw><%for.cond1>
+      DstSCEV = {{((4 * (sext i32 %2 to i64))<nsw> + (12 * (sext i32 %i.promoted to i64))<nsw> + @A),+,(12 * (sext i32 %5 to i64))<nsw>}<nsw><%for.cond>,+,(4 * (sext i32 %4 to i64))<nsw>}<nsw><%for.cond1>
+  Strides:
+  (4 * (sext i32 %4 to i64))<nsw>
+  (12 * (sext i32 %5 to i64))<nsw>
+  Terms:
+  (4 * (sext i32 %4 to i64))<nsw>
+  (12 * (sext i32 %5 to i64))<nsw>
+  Strides:
+  (4 * (sext i32 %4 to i64))<nsw>
+  (12 * (sext i32 %5 to i64))<nsw>
+  Terms:
+  (4 * (sext i32 %4 to i64))<nsw>
+  (12 * (sext i32 %5 to i64))<nsw>
+  (4 * (sext i32 %4 to i64))<nsw>
+  (12 * (sext i32 %5 to i64))<nsw>
+  Terms:
+  (4 * (sext i32 %4 to i64))<nsw>
+  (12 * (sext i32 %5 to i64))<nsw>
+  (4 * (sext i32 %4 to i64))<nsw>
+  (12 * (sext i32 %5 to i64))<nsw>
+  Terms after sorting:
+  (sext i32 %4 to i64)
+  (sext i32 %5 to i64)
+      subscript 0
+          src = {{((4 * (sext i32 %2 to i64))<nsw> + (12 * (sext i32 %i.promoted to i64))<nsw> + @A),+,(12 * (sext i32 %5 to i64))<nsw>}<nsw><%for.cond>,+,(4 * (sext i32 %4 to i64))<nsw>}<nsw><%for.cond1>
+          dst = {{((4 * (sext i32 %2 to i64))<nsw> + (12 * (sext i32 %i.promoted to i64))<nsw> + @A),+,(12 * (sext i32 %5 to i64))<nsw>}<nsw><%for.cond>,+,(4 * (sext i32 %4 to i64))<nsw>}<nsw><%for.cond1>
+          class = 3
+          loops = {1 2}
+      Separable = {0}
+      Coupled = {}
+  testing subscript 0, MIV
+      src = {{((4 * (sext i32 %2 to i64))<nsw> + (12 * (sext i32 %i.promoted to i64))<nsw> + @A),+,(12 * (sext i32 %5 to i64))<nsw>}<nsw><%for.cond>,+,(4 * (sext i32 %4 to i64))<nsw>}<nsw><%for.cond1>
+      dst = {{((4 * (sext i32 %2 to i64))<nsw> + (12 * (sext i32 %i.promoted to i64))<nsw> + @A),+,(12 * (sext i32 %5 to i64))<nsw>}<nsw><%for.cond>,+,(4 * (sext i32 %4 to i64))<nsw>}<nsw><%for.cond1>
+  starting gcd
+      Delta = 0
+      ConstDelta = 0
+  starting Banerjee
+      Src = {{((4 * (sext i32 %2 to i64))<nsw> + (12 * (sext i32 %i.promoted to i64))<nsw> + @A),+,(12 * (sext i32 %5 to i64))<nsw>}<nsw><%for.cond>,+,(4 * (sext i32 %4 to i64))<nsw>}<nsw><%for.cond1>
+          Coefficient Info
+              1   (12 * (sext i32 %5 to i64))<nsw>        Pos Part = (0 smax (12 * (sext i32 %5 to i64))<nsw>) Neg Part = (-1 + (-1 * (-1 smax (-1 + (-12 * (sext i32 %5 to i64)))<nsw>))<nsw>)<nsw>   Upper Bound = ((zext i32 (-1 + (-1 * %i.promoted) + (%1 smax %i.promoted) + %5) to i64) /u (zext i32 %5 to i64))
+              2   (4 * (sext i32 %4 to i64))<nsw> Pos Part = (0 smax (4 * (sext i32 %4 to i64))<nsw>) Neg Part = (-1 + (-1 * (-1 smax (-1 + (-4 * (sext i32 %4 to i64)))<nsw>))<nsw>)<nsw>     Upper Bound = ((zext i32 (-1 + (-1 * %2) + (%2 smax %3) + %4) to i64) /u (zext i32 %4 to i64))
+              Constant = ((4 * (sext i32 %2 to i64))<nsw> + (12 * (sext i32 %i.promoted to i64))<nsw> + @A)
+      Dst = {{((4 * (sext i32 %2 to i64))<nsw> + (12 * (sext i32 %i.promoted to i64))<nsw> + @A),+,(12 * (sext i32 %5 to i64))<nsw>}<nsw><%for.cond>,+,(4 * (sext i32 %4 to i64))<nsw>}<nsw><%for.cond1>
+          Coefficient Info
+              1   (12 * (sext i32 %5 to i64))<nsw>        Pos Part = (0 smax (12 * (sext i32 %5 to i64))<nsw>) Neg Part = (-1 + (-1 * (-1 smax (-1 + (-12 * (sext i32 %5 to i64)))<nsw>))<nsw>)<nsw>   Upper Bound = ((zext i32 (-1 + (-1 * %i.promoted) + (%1 smax %i.promoted) + %5) to i64) /u (zext i32 %5 to i64))
+              2   (4 * (sext i32 %4 to i64))<nsw> Pos Part = (0 smax (4 * (sext i32 %4 to i64))<nsw>) Neg Part = (-1 + (-1 * (-1 smax (-1 + (-4 * (sext i32 %4 to i64)))<nsw>))<nsw>)<nsw>     Upper Bound = ((zext i32 (-1 + (-1 * %2) + (%2 smax %3) + %4) to i64) /u (zext i32 %4 to i64))
+              Constant = ((4 * (sext i32 %2 to i64))<nsw> + (12 * (sext i32 %i.promoted to i64))<nsw> + @A)
+          Delta = 0
+          Bounds[*]
+              1   ((-1 + (-1 * (0 smax (12 * (sext i32 %5 to i64))<nsw>))<nsw> + (-1 * (-1 smax (-1 + (-12 * (sext i32 %5 to i64)))<nsw>))<nsw>) * ((zext i32 (-1 + (-1 * %i.promoted) + (%1 smax %i.promoted) + %5) to i64) /u (zext i32 %5 to i64)))      ((1 + (0 smax (12 * (sext i32 %5 to i64))<nsw>) + (-1 smax (-1 + (-12 * (sext i32 %5 to i64)))<nsw>)) * ((zext i32 (-1 + (-1 * %i.promoted) + (%1 smax %i.promoted) + %5) to i64) /u (zext i32 %5 to i64)))
+              2   ((-1 + (-1 * (0 smax (4 * (sext i32 %4 to i64))<nsw>))<nsw> + (-1 * (-1 smax (-1 + (-4 * (sext i32 %4 to i64)))<nsw>))<nsw>) * ((zext i32 (-1 + (-1 * %2) + (%2 smax %3) + %4) to i64) /u (zext i32 %4 to i64)))  ((1 + (0 smax (4 * (sext i32 %4 to i64))<nsw>) + (-1 smax (-1 + (-4 * (sext i32 %4 to i64)))<nsw>)) * ((zext i32 (-1 + (-1 * %2) + (%2 smax %3) + %4) to i64) /u (zext i32 %4 to i64)))
+          Bound for level = 1
+              <   ((-12 * (sext i32 %5 to i64)) + ((-1 + (-1 * (-1 smax ((12 * (sext i32 %5 to i64))<nsw> + (-1 smax (-1 + (-12 * (sext i32 %5 to i64)))<nsw>))))<nsw>)<nsw> * (-1 + ((zext i32 (-1 + (-1 * %i.promoted) + (%1 smax %i.promoted) + %5) to i64) /u (zext i32 %5 to i64)))<nsw>))     ((-12 * (sext i32 %5 to i64)) + ((-1 + ((zext i32 (-1 + (-1 * %i.promoted) + (%1 smax %i.promoted) + %5) to i64) /u (zext i32 %5 to i64)))<nsw> * (0 smax ((-12 * (sext i32 %5 to i64)) + (0 smax (12 * (sext i32 %5 to i64))<nsw>)))))
+              =   0       0
+              >   ((12 * (sext i32 %5 to i64))<nsw> + ((-1 + (-1 * (-1 smax (-1 + (-12 * (sext i32 %5 to i64)) + (0 smax (12 * (sext i32 %5 to i64))<nsw>))))<nsw>)<nsw> * (-1 + ((zext i32 (-1 + (-1 * %i.promoted) + (%1 smax %i.promoted) + %5) to i64) /u (zext i32 %5 to i64)))<nsw>)) ((12 * (sext i32 %5 to i64))<nsw> + ((-1 + ((zext i32 (-1 + (-1 * %i.promoted) + (%1 smax %i.promoted) + %5) to i64) /u (zext i32 %5 to i64)))<nsw> * (0 smax (1 + (12 * (sext i32 %5 to i64))<nsw> + (-1 smax (-1 + (-12 * (sext i32 %5 to i64)))<nsw>)))))
+          Bound for level = 2
+              <   ((-4 * (sext i32 %4 to i64)) + ((-1 + (-1 * (-1 smax ((4 * (sext i32 %4 to i64))<nsw> + (-1 smax (-1 + (-4 * (sext i32 %4 to i64)))<nsw>))))<nsw>)<nsw> * (-1 + ((zext i32 (-1 + (-1 * %2) + (%2 smax %3) + %4) to i64) /u (zext i32 %4 to i64)))<nsw>))  ((-4 * (sext i32 %4 to i64)) + ((-1 + ((zext i32 (-1 + (-1 * %2) + (%2 smax %3) + %4) to i64) /u (zext i32 %4 to i64)))<nsw> * (0 smax ((-4 * (sext i32 %4 to i64)) + (0 smax (4 * (sext i32 %4 to i64))<nsw>)))))
+              =   0       0
+              >   ((4 * (sext i32 %4 to i64))<nsw> + ((-1 + (-1 * (-1 smax (-1 + (-4 * (sext i32 %4 to i64)) + (0 smax (4 * (sext i32 %4 to i64))<nsw>))))<nsw>)<nsw> * (-1 + ((zext i32 (-1 + (-1 * %2) + (%2 smax %3) + %4) to i64) /u (zext i32 %4 to i64)))<nsw>))      ((4 * (sext i32 %4 to i64))<nsw> + ((-1 + ((zext i32 (-1 + (-1 * %2) + (%2 smax %3) + %4) to i64) /u (zext i32 %4 to i64)))<nsw> * (0 smax (1 + (4 * (sext i32 %4 to i64))<nsw> + (-1 smax (-1 + (-4 * (sext i32 %4 to i64)))<nsw>)))))
+          [ < < ]
+          [ < = ]
+          [ < > ]
+          [ = < ]
+          [ = = ]
+          [ = > ]
+          [ > < ]
+          [ > = ]
+          [ > > ]
+  [DependencyCheck] this inst causes dependency: 
+  Dep of store side:   store i32 %add, i32* %arrayidx5, align 4
+  Dep of load side:   %6 = load i32, i32* %arrayidx5, align 4
+
+
+
+
+
+
+
+
+
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/** Github_polybench用 
+  setenv SCRIPT_DIR ~/Pollybench/Github_polybench/script
+  setenv BENCH gemm
+  setenv source ${SCRIPT_DIR}/../polybench-c-4.2/linear-algebra/blas/gemm/gemm.c
+  #
+  setenv source ${SCRIPT_DIR}/../polybench-c-4.2/linear-algebra/blas/trmm/trmm.c
+  code $source
+  setenv IR_DIR $SCRIPT_DIR/../IR
+  setenv seqIR $IR_DIR/$BENCH.seq.ll
+  setenv inputIR $IR_DIR/$BENCH.licm.ll
+  setenv direcIR $IR_DIR/$BENCH.inserted.ll
+  setenv outputIR $IR_DIR/$BENCH.ll
+  code $source
+
+  [パスの実行]
+  // "kenel"がつく関数の，"#"を削除する
+  $SCRIPT_DIR/IR_make.sh $BENCH seq O0
+  cp $IR_DIR/$BENCH.ll ${seqIR}
+  code $seqIR
+
+  //ディレクティブの挿入・並列化・コンパイル・実行
+  setenv direcPass DirectiveInsertion
+  $opt -licm -early-cse -S ${seqIR} -o ${inputIR}
+  code ${inputIR}
+  $opt -disable-output -allprivatedetect $inputIR
+  $opt -S -load $llvm/../lib/LLVM${direcPass}.so -directiveinsertion -o $direcIR $inputIR
+  code ${direcIR}
+  $opt -paramget -S -o $outputIR $direcIR
+  code $outputIR
+  ${clang}++ -fopenmp $outputIR -o ${exefile}.ir && ${exefile}.ir
+**/
+
+/** Github_llvm用
+  setenv LLVM_BUILD /opt/jingukng/opt.build
+  setenv LD_LIBRARY_PATH :${LLVM_BUILD}/lib
+  setenv OMP_NUM_THREADS 4
+  setenv llvm ${LLVM_BUILD}/bin
+  setenv clang ${LLVM_BUILD}/bin/clang
+  setenv opt ${LLVM_BUILD}/bin/opt
+  ;
+  setenv workdir ~/LLVM/Github_llvm/tests
+  setenv number 10
+  setenv source ${workdir}/${number}_Subscript_analysis.cpp
+  setenv seqIR ${workdir}/${number}_before.ll
+  setenv inputIR ${workdir}/${number}_licm.ll
+  setenv direcIR ${workdir}/${number}_inserted.ll
+  setenv outputIR ${workdir}/${number}_after.ll
+  setenv exefile ${workdir}/${number}_
+  code $source
+  ;
+  ${clang}++ -S -emit-llvm -O0 -Xclang -disable-O0-optnone $source -o ${seqIR}
+  $opt -licm -early-cse -S $seqIR -o $inputIR
+  $opt -disable-output -allprivatedetect $inputIR
+  setenv direcPass DirectiveInsertion
+  $opt -S -load $llvm/../lib/LLVM${direcPass}.so -directiveinsertion -o $direcIR $inputIR
+  code $direcIR
+  $opt -paramget -S -o $outputIR $direcIR
+  ${clang}++ -fopenmp $outputIR -o ${exefile}.ir && ${exefile}.ir
+
+  $opt -O3 -S $seqIR -o $inputIR
+  ${clang}++ $source -o ${exefile}.seq && ${exefile}.seq 
+  ${clang}++ -fopenmp $source -o ${exefile}.omp && ${exefile}.omp
+  cp $inputIR $outputIR $direcIR ~/UPLOAD
+
+**/
+
+---
+
+グローバル変数について．
+どうやらグローバル変数はポインタを指している可能性も考慮されるらしく，「もしかしたら同じかも」という判断となり，依存があるということになる．その場合は，こっちもほおっておくしかない．
+
+仕様：
+対象ループの内側のループで使用されているループカウンタが，Load，Store命令の場合，private変数に指定する必要があるので，依存として検出する．
+
+もしかして，AllPrivateとかの関数レベルのパスは，関数が更新される度に解析しているのでは．runOnFunctionに処理を記述するのはやめよう．
+
+
+DependencyCheckについて
+対応すべき問題：エイリアスが存在していると仮定して，依存がないと判断すること．
+...GEP命令の，ベースアドレスがエイリアスしていると仮定したら，インデックスが同じ式なら依存はないと分かるでしょ．
+GEP命令のアクセスは，ベースアドレスから順々にされていく．
+だから，エイリアスされていたとしても，後ろ側の添字が等しければそこに依存はない．
+//これを実装しても，解決できる依存はすくない
+↓
+エイリアスの問題は，エイリアスの解析を向上させることでしか対応できないのでは．モジュール分割されていて，この関数の呼び出し全てを解析できないなら，エイリアスもへったくれもない．
+結局対応できたものは，それより大きな問題によって無意味になったのでは．
+↓
+解析パスの話は，丸ごとカットしてしまおう．少なくとも発表のコアを握る部分じゃないし，発表してもしなくても変わらない部分だから．
+これ以上は無理だよ．ここから新しい依存解析手法を設計して，自動並列化して，論文を書くなんて間に合わない．今出来ている部分だけで完成させた方が良い．
+
+
+
+
+
+
+--
+
+[DependencyCheck] this inst causes dependency:   store i32 %conv7, i32* %arrayidx9, align 4
+recorded GEP idx: i64 0
+recorded GEP idx: add105  %add105 = phi i64 [ %add10, %for.inc ], [ %4, %for.body ]
+recorded GEP idx: i64 0
+recorded GEP idx: add105  %add105 = phi i64 [ %add10, %for.inc ], [ %4, %for.body ]
+checking store: i64 0
+checking store:   %add105 = phi i64 [ %add10, %for.inc ], [ %4, %for.body ]
+[DependencyCheck] GEP uses loop counter
+recorded GEP idx: i64 0
+recorded GEP idx: add128  %add128 = phi i64 [ %add12, %for.inc11 ], [ %2, %entry ]
+recorded GEP idx: i64 0
+recorded GEP idx: add128  %add128 = phi i64 [ %add12, %for.inc11 ], [ %2, %entry ]
+recorded GEP idx: i64 1
+recorded GEP idx: add  %add = add nsw i64 %add128, 1
+checking store: i64 0
+checking store:   %add128 = phi i64 [ %add12, %for.inc11 ], [ %2, %entry ]
+[DependencyCheck] This inst does NOT cause dependency. this GEP accesses independent element in each iteration
+  store i32 %conv7, i32* %arrayidx9, align 4
+[DependencyCheck]------- show CanDepMap ------
+------------------
+GEPへのストアで，依存があるものを依存がないと判断している．
+
+依存が内側のループにある時，それを依存がないとしている．
+検出した依存が内側にある場合，その依存しているStoreのメモリが，GEPであること
+そして，(i)そのGEPがループ外で定義されている（ループ不変）であるか，
+または，(ii)ループ内で定義されているなら，インデックスが全て等しい．
+上記2つの条件を満たすGEP命令なら，依存はない．
+
+DependencyCheckで，サブループの依存関係を含めないようにした．
+内側のループで定義されている命令をスキップしないようにした．（phi命令を除く）
+
+内側jの添字が[j],[j+1]であるが，[i] = [i]で，ある場合，外側iについては依存はない．
+↓
+依存検出の条件を替える．
+GEPに依存があるのは，自身のループカウンタが登場する添字位置で，同じ式をつかっていること．
+
+
+  $opt -disable-output -allprivatedetect $inputIR
+  $opt -S -load $llvm/../lib/LLVM${direcPass}.so -directiveinsertion -o $direcIR $inputIR
+  code $direcIR
+
+
+
+--
+ループカウンタのinit,cond,incrでキャスト命令が始めに出てくる場合，正しく処理できない．
+initの場合は，キャスト命令の先にあるphiをちゃんと見つけて，生成している．phiを生成すれば，残りのキャスト命令は，ループ本体を作成する部分で生成されるので問題ないという事をしっているんだ．
+→だとしたら，一番最初のinitの時点でphiを選んでくれよ．
+//ここを改善する//一番最初の時点でキャスト命令を無視する．
+incrもキャストを無視する...それでいいのか？途中の計算でキャストしている場合，キャストを無視してはいけない．だから，incrのトレース結果は，2項演算子から始まらなくてもいい．
+
+(i)initの最初をphiかloadのみにする．出てくるまでキャスト命令を無視する．
+(ii)incrには条件をつけない．最初に辿る時にでてくるキャスト命令は無視するが，2項演算子以降のキャスト命令は無視しない．
+＋
+incrを生成して，それを利用するときに，ちゃんと新しく生成した方を使用しているか確認すること．
+
+
+incrは，インクリメント値と，ループカウンタを足した値とする．
+なので，2項演算子をキャストしたものも許す．
+↓
+あまりにもここら辺わかりづらいので，シンプルなものに変更する．
+
+バイナリ演算子を前提にしているから，あるオペランドがループカウンタかどうかを判断しない．
+
+
+--
+(i)命令のトレースと照合
+phi命令と，ループ外の命令，命令にキャストできない値は，名前を確認する．名前の無い値（定数）はその値が等しいかどうかを確認する．
+それ以外の場合は，オペコードが同じかどうかを確認する．
+  collectGEPUsedValuesの変更//「それ以外の場合」の命令を集める
+  checkGEPSubscriptsの変更 //「それ以外の場合」のチェックを実装する．
+
+(ii)添字で使われているループカウンタについて，ループネストの深さにより依存の有無を判断するようにした．
+//依存の有無を判断するのではなく，その依存が現在のループの並列化にかかわるかどうかをチェックするのでは？これをする役目は挿入パスにある．依存検出パスは，ただそこに依存があると確認するだけ．
+//
+2D配列のプログラムでデバッグが完了したなら，再びpolybenchのgemmカーネルを並列化できるかパスを実行してみる．
+
+--
+
+大まかな設計：添字が同じ式で，ループカウンタを使っているならばそれらの読み書きのペアには依存が存在しないとする．
+LLVMの依存解析パスによって依存があるとされたstore命令とload命令のペアを入力とする．
+各命令でアクセスするメモリが，GEP命令により定義されているならば，以下の処理を行う．
+//OK
+GEP命令の添字およびベースアドレスを解析して，そこで使われる値が等しいならばループ独立な位置にアクセスしていると判断する．
+添字およびベースアドレスで使われる変数および値を記録する．
+(i)解析しているループのループカウンタを使っており，ループカウンタの係数が確実に0でないと言いきれることを確認する．
+  ループカウンタの係数が0でないことを確認しなければならない．
+(ii)添字で使われる変数および定数が同じであることを確認する．具体的には，使用されている変数および値の総数が等しく，片方で記録された全ての変数および値が，もう片方にも存在する場合，同じであると判断する．
+以上の2つの条件を満たすならば，ループ独立なアクセスであると判断する
+
+テスト3はOKだが，AllPrivateで問題が見つかった
+//
+解決のために，依存を引き起こしているLoad命令もCanDepMapに記録することになった．
+キーがloadされるメモリの名前で，値はstore命令．
+この実装だと，依存が解消できるかどうかを2回解析することになる．//別名のポインタを使っている時点で解消などできるはずもないのに．
+
+--
+
+gemm//2次元配列について，依存方向がEQだから依存がないとかの解析ができてない
+→その添字に使われているインデックスが，ループの外で定義されているか，ループカウンタであればいい．
+
+添字を解析する．
+→LLVMの依存解析パスが必要な情報を提供しない．依存方向がEQのアクセスA[i][j] = A[i][j] + 1;みたいな文の解析でさえ，ある条件では依存がある，ある条件では依存がないという事を提供する．
+依存方向の情報を手に入れるためには，ループの境界が即値でなければならない．そうでなければ，配列の境界を超えたアクセスなどがあるかもしれないため．
+この情報がなければ，2次元配列は1次元の配列に変換されて，MIVとしてテストされる．
+MIVとして判断されたが最後，それらは同時にはアクセスできない．
+断言しよう，例えSIVテストであっても正確な依存解析など提供されやしない．
+
+いまの実装だと，firstprivateが依存方向のチェックをするから，依存がないと判定できる．
+もしかすると，firstprivateと同じように，LLVMの依存解析結果から依存方向がEQになるようなケースを自分で考えなければならないのでは．自分でこれらを判断しなければならない．
+依存解析は難しいって，一番言われているんだぞ．
+//
+ループカウンタをlongにして，境界をlongに揃えても，依存解析結果は正しい結果を返さない．
+firstprivateでやっている小手先の対応で，依存を無いことにできないか．→firstprivateは，使われているオペランドが依存のないものかどうかを確認しているだけ．A[i+1] = A[i]みたいなものは，ループ境界が即値でなければ解析できない．
+つまり，現状2次元配列があるループは，全て依存があると判断してしまう．2次元配列でなくても，ループカウンタを2つ使うようなループ
+//よく思い直したら，2次元どころか1次元配列で1つのループカウンタしか使っていない場合でも依存を検出しているんだったわ．つまるところ，配列を使うケースでは，LLVMの依存解析パスはほとんど役に立たないということなのでは．
+//かなり危機的状況だと言わざるを得ない．
+//依存解析をして，一部の情報でもいいから依存がない事を確認できないか．
+//同じ場所にアクセスしているか，いないかだけでいいから．それも，同じ変数であるかどうかを調べるだけでいいから．本当に腑甲斐無い結果なので，それ位の添字の解析はすべきなのかもしれない．異なる場所にアクセスしているなら，LLVMの依存解析結果に委ねるしかない．
+↓
+同じ場所にアクセスしているか，いないかだけでよいので，配列アクセスの依存をすこしでもへらせるようにする．
+  ただ，現在解析の対象とするループのカウンタを使っていないなら，それはリダクションでなければ依存を解消できないので，依存マップの中に入れること．
+  ここで依存でないと判断するのは，(i)解析対象のループのカウンタが，添字で使われていること． (ii)その添字で使用される変数が，全て等しいこと． ()
+
+
+
+--
+あらたな問題が発生した．DependencyCheckの依存解析をループカウンタの初期値とかを含めて行う必要が出てきた．trmmのB[i][j]とB[k][j]のアクセスについて，kの初期値がi+1であり，その進行方向がループカウンタと同じであることから，kがi以下になることはない．よって依存は発生していない．→これを解析できなければtrmmを並列化することはできない．
+→もっと簡単なループを対象に実験してみないか．今回の結果は今後の課題として述べるだけでいい．
+
+
+--
+ループの内側にあるphi命令は，CanDepMapに記録しないこと．
+次に，ループの内側にあるload命令との依存関係は，記録しないこと．
+CanDepMap を取得する別の関数とか作ったほうがいい．DirectiveInsertionと，AllPrivateDetectを両方共書き換えるのは手間になってきた．
+//とりあえず今週末の目標は，上記の処理を加えること．
+
+DependencyCheckのドキュメントも此処に書くことにする．
+LoopCounterMapを返すための，collectLoopCounterをメンバとする．
+
+--
+paramgetのlastprivateに問題が見つかった．
+問題：lastprivateにphi命令を指定すると，ループ本体でundefが使用される．
+キャスト命令が消えた．store命令の値が消えた．
+詳しいエラーの状況が分からないのが効率を悪くしている．いつ，何と入れ替わっているのか記録してくれ．
+
+
+
+--
+問題： private変数の検出が，関数毎に行われるため，参照するのが面倒臭い．素直にループ毎にしたらどうだ．
+
+問題：LoopInfoWrapperPassの解析結果が使えない→使えていた．
+private変数がphi命令に変換されて依存がなくなっていただけだった．
+問題：DirectiveInsertionパスを呼び出すことができない．
+→PrivateDetectの名前空間をllvmに変更したところ，解決した．
+--
+LoopInfoWrapperPassと同じようにInitializePass.hに記述する．
+name spaceをllvmにする．
+これでOK
+
+ビルドはできるようになったが，llvm::PrivateDetectは未定義のまま．
+LoopInfoWrapperPassは，パスとして呼び出せるようになっているのと関係があるのか？
+
+LazyValueInfoパスを参考にPass.hにcreatePrivateDetectの宣言を追加した．
+頑張ればできるじゃないか．
+その結果，optをビルドしなおしてopt -help | grep privateを実行すると，PrivateDetectパスが生成できるようになった．
+
+
+
+
+--
+PrivateDetect(以下PD)は，プライベート変数が見つかったらもう一度計算を繰り返して，プライベート変数が引き起こしている依存により解決できる依存なら，privateにできるという判断を行っている．
+つまり，依存を含むか含まないかの判断は，ここでは分離できない．
+
+--
+なぜかコンパイルできなくて詰まっていたが，原因は解析passと挿入passを個別にビルドしていたかららしい．コピーして単にmakeをしてやると正常にビルドできるようになった．その代わりビルド時間が尋常じゃないぐらいのびた．
+→そんなのは関係無かった．namespaceを消したから動いただけだった．結局PrivateDetectが使えないのには変わらない．むしろビルドのデバッグ内容が出てくるのが遅くなっただけで，時間を無駄にしている．
+PrivateDetectは未定義のシンボルですというエラーが出た．
+
+
+
+--
+PrivateDetectパスで取り敢えず変更して，挿入passで解析結果を表示できるようにする．
+代入される値で使用する変数の依存解析をしないようにPrivateを変更する．
+LastPrivateを変更して，挿入passで解析結果を表示できるようにする．
+代入される値で使用する変数の依存解析をしないようにLastPrivaeを変更する．
+テストしてみる．lastprivateに格納される値でprivateを使用している場合，private変数に代入する値の計算で依存のある変数（今回の場合はリダクションでいい）を使用している場合．この2つをテストできれば大体OK．
+
+LoopInfoWrapperPassを呼び出す際，Moduleパスは関数のインスタンスを渡す必要があったが，Functionパスの場合はgetAnalysisに何も渡さない．
+
+--
+//今悩んでいるのは，Lastprivateなどの各passで判断するのではなく，privateかどうかの判断に必要な最小限度のメソッドを用意して，挿入passでメインの処理を行う方がいいのかもしれないということ．
+その変数へ代入される値で使用される変数の依存解析だけは，挿入passで行うようにする．
+それ以外の条件については解析passで行うようにする．
+
+挿入パスという名前からは外れている機能のようにみえるが，解析passの結果を統合して並列化ディレクティブを挿入するという目的にはそっている．
+解析パス同士の結合性を高くしてしまうより，挿入パスでそれぞれの処理を統合する方が良いように思えた．
+
+
+--
+コードが短くて簡単なtrmmから作業を始めよう．
+choleskyは何故か並列化できないようなループがある．IRコードがない．計測結果が正確ではない．OpenMPと同じ結果が得られると分かっているんだから，並列IRコードがあろうがなかろうが，全ての並列化可能なループを並列化したときの速度向上率はかわらないのでは．
+つまり，このまま作業を続けても問題はない．確実性が欲しいなら多少効率は悪くなるがIRコードを並列化してもう一度計測する作業を挟んでもいい．
+
+とりあえずディレクティブ挿入passを動かしてみようよ．
+
+
+
+
+
+
+
+/** polybench 一覧
+     ./datamining/correlation/correlation.c
+     ./datamining/covariance/covariance.c
+     ./linear-algebra/kernels/2mm/2mm.c
+     ./linear-algebra/kernels/3mm/3mm.c
+     ./linear-algebra/kernels/atax/atax.c
+     ./linear-algebra/kernels/bicg/bicg.c
+     ./linear-algebra/kernels/doitgen/doitgen.c
+     ./linear-algebra/kernels/mvt/mvt.c
+     ./linear-algebra/blas/gemm/gemm.c
+     ./linear-algebra/blas/gemver/gemver.c
+     ./linear-algebra/blas/gesummv/gesummv.c
+     ./linear-algebra/blas/symm/symm.c
+     ./linear-algebra/blas/syr2k/syr2k.c
+     ./linear-algebra/blas/syrk/syrk.c
+     ./linear-algebra/blas/trmm/trmm.c
+     ./linear-algebra/solvers/cholesky/cholesky.c ########why wrong?
+     ./linear-algebra/solvers/durbin/durbin.c
+     ./linear-algebra/solvers/gramschmidt/gramschmidt.c ########why wrong?
+     ./linear-algebra/solvers/lu/lu.c ########why wrong?
+     ./linear-algebra/solvers/ludcmp/ludcmp.c ########why wrong?
+     ./linear-algebra/solvers/trisolv/trisolv.c ########no parallelism: maybe parallelizable in IR
+     ./medley/deriche/deriche.c  ####### why OK?
+     ./medley/floyd-warshall/floyd-warshall.c ####### why OK? //このプログラムが一番短い
+     ./medley/nussinov/nussinov.c ########no parallelism
+     ./stencils/adi/adi.c  ####### why OK?
+     ./stencils/fdtd-2d/fdtd-2d.c
+     ./stencils/heat-3d/heat-3d.c  ####### why OK?
+     ./stencils/jacobi-1d/jacobi-1d.c
+     ./stencils/jacobi-2d/jacobi-2d.c
+     ./stencils/seidel-2d/seidel-2d.c ########no parallelism
+
+**/
+

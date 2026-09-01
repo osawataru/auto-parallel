@@ -1,0 +1,132 @@
+
+* コード生成パスのmake
+
+要件
+-CMake ver.3.4.3 以上 (LLVMをmakeするための要件)
+
+** LLVMのみのmake
+  cd <where you want to build llvm>
+  mkdir build
+  cd build
+  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release <path to llvm sources>
+  make
+
+** 開発したファイルの配置
+
+- 指示文の定義ファイル 
+  llvm/include/llvm/IR/Intrinsics.td
+- コード生成パスのソースファイル
+  llvm/lib/Transforms/Scalar/ParamGet.cpp
+- コード生成パスのヘッダファイル
+  llvm/include/llvm/Transforms/Scalar/ParamGet.h
+- LLVMのoptコマンドでloadオプションによりコード生成パスのオブジェクトファイルを指定しなくともコード生成パスを使えるようにする為のファイル
+  llvm/include/llvm/InitializePasses.h 
+  llvm/include/llvm/LinkAllPasses.h
+  llvm/include/llvm/Transforms/Scalar.h
+  llvm/lib/Transforms/Scalar/CMakeLists.txt 
+  llvm/lib/Transforms/Scalar/Scalar.cpp
+
+** 並列化指示文の挿入
+parallelize FOR loop based on the IR statement "call void @llvm.directive(metadata !<metadata number>)".	<br>You should also add "declare void @llvm.directive(metadata)" and "!<metadata number> = !{!"<metadata string>"}" in IR code.
+
+- 並列化指示文による変換が可能なプログラムの要件
+-- ループの出入口が1つであること
+-- ループが1つのループカウンタにより制御されていること
+-- ループカウンタの終了値と増分値がループ内で不変であること
+-- ループ脱出条件の述語が>=,>,<,<=,==,!=のいずれかであること
+-- ループカウンタがIRコードにおいてphi命令かload/store命令で表現されていること
+- 指示句による変換の要件
+-- 使える句はprivate, firstprivate, lastprivate, reductionの4つ
+-- store/load命令のアドレスを指すオペランドを指示句に渡すことができる
+ 例 
+  call void llvm.directive(metadata !2)
+  [...] //ループの先頭
+  store %xxx, %mem
+  [...] //ループの終わり
+ //メタデータ
+ !2 = !{!"#pragma omp parallel for", !"private(mem)"}
+--- firstprivate句は配列や構造体をコピーする以外ではあまり使わない
+-- reduction句についてはphi命令も渡すことができる
+
+** LLVMのoptコマンドを用いたパスの実行
+    cd build/bin
+    opt -paramget <Source IR file> -S -o <Dest IR file>
+
+** コード変換パスの利用例
+-ソースコードを用意する
+--例 &ref(testprog/0_dot_files/0_source.cpp,,0_source.cpp);
+  #include<stdio.h>
+  int main()
+  {
+    #pragma omp parallel for
+    for(int i=0;i<100;i++)
+    {
+      printf("\n");
+    }
+    return 0;
+  }
+  /* statement to be inserted into IR code.
+  declare void @llvm.directive(metadata)
+  !200 = !{!"#pragma omp paralle for"}
+  ;  call void @llvm.directive(metadata !200)
+  */
+-IRコードを生成する
+ setenv clang build/bin/clang
+ setenv target testprog/0_dot_files/0_source.cpp
+ $clang -S -O0 -emit-llvm -disable-O0-optnone $target -o 0_before.ll
+-並列化指示文を挿入する
+--例 &ref(testprog/0_dot_files/0_before.ll,,0_before.ll);
+--関数の外に以下を追加
+  declare void @llvm.directive(metadata)
+  !200 = !{!"#pragma omp paralle for"}
+--変換対象のループを構成する基本ブロックの先頭に並列化指示文を追加
+  for.cond:                                         ; preds = %for.inc, %entry
+    call void @llvm.directive(metadata !200) ;;この命令を追加
+    %0 = load i32, i32* %i, align 4
+    %cmp = icmp slt i32 %0, 100
+    br i1 %cmp, label %for.body, label %for.end
+-コード生成パスを実行する
+　setenv opt build/bin/opt
+  $opt -S -paramget 0_before.ll -o 0_after.ll
+--例 &ref(testprog/0_dot_files/0_after.ll,,0_after.ll);
+--ループがあった場所に"__kmpc_fork_call"関数の呼出し命令があり，その命令で呼び出す関数の本体に，ループで行っていた内容の処理が行われているならば変換できている．
+-生成したIRコードからバイナリファイルを生成する
+ $clang -O0 0_after.ll -o 0_after
+-バイナリファイルを実行する
+　./0_after
+----
+
+* 解析パスのmake
+-開発した解析パス
+--DependencyCheck：依存を検出する
+---LLVMが備えるDependenceAnalysisWrapperPassの結果と，本研究で開発したphi命令の依存解析の結果から依存を判断する
+---以下の全ての解析パスは，このパスの結果を利用する
+--PrivateDetect：private指示句に指定すべき変数を検出する
+--FirstPrivateDetect：firstprivate指示句に指定すべき変数を検出する
+--LastPrivateDetect：lastprivate指示句に指定すべき変数を検出する
+--AllPrivateDetect：private, firstprivate, lastprivate指示句に指定すべき変数の解析結果をまとめて検出する
+---上述の3つのパスの結果を受け取って結果としただけ
+--ReductionDetect：reduction指示句で指定すべき変数を検出する
+
+* 解析パスを使うために必要な変更
+-llvm/lib/Analysis/CMakeLists.txtに追加するパスのソースファイル名を追加する
+-llvm/lib/Analysisに追加するパスのソースファイルを追加する
+-llvm/include/llvm/Analysisに追加するパスのヘッダファイルを追加する
+-llvm/include/llvmのLinkAllPasses.hとInitializePasses.hに解析パスの奴を追加する．createPrivateDetectとか，initializePrivateDetectとか．
+
+
+色々な解析パスを使っているからそれを解析パスとして登録して利用できるようにしないとコード生成パスを作ることはできないのでは．
+だから解析パスのmakeとかで章を区切るのではなく，コード生成パスの説明で追加してしまおう．
+
+
+-LLVM ver.8.0.1をダウンロード [[GitHub llvm/llvm-project>https://github.com/llvm/llvm-project]]
+-- Branchをクリックしてrelase/8.xを選択．Clone or downloadをクリックしてDownload ZIPによりダウンロードを開始する
+-llvmのディレクトリへ移動・ビルド用ディレクトリの作成
+ cd llvm-release-8.x/llvm
+ mkdir build
+ cd build
+-LLVMのビルド
+ cmake -G "Unix Makefiles" -DLLVM_ENABLE_PROJECTS='clang;polly' ../
+
+
+

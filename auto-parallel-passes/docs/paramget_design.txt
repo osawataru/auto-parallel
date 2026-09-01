@@ -1,0 +1,663 @@
+
+
+[ビルド]
+setenv priP AllPrivateDetect
+setenv redP ReductionDetect
+setenv depP DependencyCheck
+setenv dirP DirectiveInsertion
+~/Github_llvm_ln/script/cp_to_opt.sh ${priP} analysis
+~/Github_llvm_ln/script/cp_to_opt.sh ${redP} analysis
+~/Github_llvm_ln/script/cp_to_opt.sh ${depP} analysis
+~/Github_llvm_ln/script/cp_to_opt.sh ${dirP}
+~/Github_llvm_ln/script/paramget_cp_to_opt.sh 
+make opt ; notify-send built
+
+//---
+setenv LLVM_BUILD /opt/jingukng/opt.build
+setenv LLVM_HOME ${LLVM_BUILD}/../llvm-8.0.0.src
+code ${LLVM_HOME}/include/llvm/Analysis/Passes.h
+code ${LLVM_HOME}/include/llvm/LinkAllPasses.h
+code ${LLVM_HOME}/include/llvm/InitializePasses.h
+code ${LLVM_HOME}/lib/Analysis/Analysis.cpp
+code ${LLVM_HOME}/lib/Analysis/CMakeLists.txt
+//---
+
+[作業用コマンド]
+/** Github_polybench用 
+  setenv SCRIPT_DIR ~/Pollybench/Github_polybench/script
+  setenv BENCH gemm
+  setenv source ${SCRIPT_DIR}/../polybench-c-4.2/linear-algebra/blas/gemm/gemm.c
+  #
+  setenv source ${SCRIPT_DIR}/../polybench-c-4.2/linear-algebra/blas/trmm/trmm.c
+  code $source
+  setenv IR_DIR $SCRIPT_DIR/../IR
+  setenv seqIR $IR_DIR/$BENCH.seq.ll
+  setenv inputIR $IR_DIR/$BENCH.licm.ll
+  setenv direcIR $IR_DIR/$BENCH.inserted.ll
+  setenv outputIR $IR_DIR/$BENCH.ll
+  code $source
+
+  [パスの実行]
+  // "kenel"がつく関数の，"#"を削除する
+  $SCRIPT_DIR/IR_make.sh $BENCH seq O0
+  cp $IR_DIR/$BENCH.ll ${seqIR}
+  code $seqIR
+
+  //ディレクティブの挿入・並列化・コンパイル・実行
+  setenv direcPass DirectiveInsertion
+  $opt -licm -early-cse -S ${seqIR} -o ${inputIR}
+  code ${inputIR}
+  $opt -disable-output -allprivatedetect $inputIR
+  $opt -S -load $llvm/../lib/LLVM${direcPass}.so -directiveinsertion -o $direcIR $inputIR
+  code ${direcIR}
+  $opt -paramget -S -o $outputIR $direcIR
+  code $outputIR
+  ${clang}++ -fopenmp $outputIR -o ${exefile}.ir && ${exefile}.ir
+**/
+
+/** Github_llvm用
+  setenv LLVM_BUILD /opt/jingukng/opt.build
+  setenv LD_LIBRARY_PATH :${LLVM_BUILD}/lib
+  setenv OMP_NUM_THREADS 4
+  setenv llvm ${LLVM_BUILD}/bin
+  setenv clang ${LLVM_BUILD}/bin/clang
+  setenv opt ${LLVM_BUILD}/bin/opt
+  ;
+  setenv workdir ~/LLVM/Github_llvm/tests
+  setenv number 10
+  setenv source ${workdir}/${number}_Subscript_analysis.cpp
+  setenv seqIR ${workdir}/${number}_before.ll
+  setenv inputIR ${workdir}/${number}_licm.ll
+  setenv direcIR ${workdir}/${number}_inserted.ll
+  setenv outputIR ${workdir}/${number}_after.ll
+  setenv exefile ${workdir}/${number}_
+  code $source
+  ;
+  ${clang}++ -S -emit-llvm $source -o ${seqIR}
+  code $seqIR
+  //#消す
+  $opt -licm -early-cse -S $seqIR -o $inputIR
+  $opt -disable-output -allprivatedetect $inputIR
+  setenv direcPass DirectiveInsertion
+  $opt -S -load $llvm/../lib/LLVM${direcPass}.so -directiveinsertion -o $direcIR $inputIR
+  code $direcIR
+  $opt -paramget -S -o $outputIR $direcIR
+  ${clang}++ -fopenmp $outputIR -o ${exefile}.ir && ${exefile}.ir
+
+  $opt -O3 -S $seqIR -o $inputIR
+  ${clang}++ $source -o ${exefile}.seq && ${exefile}.seq 
+  ${clang}++ -fopenmp $source -o ${exefile}.omp && ${exefile}.omp
+
+**//
+
+
+
+
+
+---
+ループの上限が64bitかつループカウンタが32bitだった場合，ビット幅が異なるために命令を生成できない．
+解決策としては，32bit側を64bit側にそろえる．4499
+ループカウンタの初期値がi32
+ループカウンタはi32
+ループインクリメントはi32
+ループ脱出条件はi64
+新しいループ脱出条件では，新しいループカウンタ(i32)と，新しいループ脱出条件(i64(init_8))を比較する．
+新しいループインクリメントでは，新しいループカウンタ(i32)と，新しいループインクリメント(i32)を足し合わせる．
+
+double型のループカウンタは対応しない．libgompが対応していないから．
+オリジナルのループインクリメントが得られない．ループカウンタがキャストされたあと，計算で使用されているため，ループカウンタをオペランドに持つ2項演算子の処理と同時にセットされるオリジナルのループカウンタが，セットされない．
+策i)    2項演算子でキャスト命令が使われている場合，その先をみる．
+策ii)   
+
+バイナリであるのにも関わらず，
+incrは，他の命令の前に，特殊な処理が必要だから別の関数にする．(とりあえず今はこのまま進めて，この問題が解決してから書き換える)
+
+buildIncrで行う処理を明確にしてくれ．そうすればよりよい実装方法とか考えやすくなるから．
+1.ループカウンタを見つける．
+2.ループカウンタを含むのであれば，そのオペランドを0と入れ替える
+3.もし，入れ替える命令が2項演算子であれば，インクリメント値の絶対値を取得するために，オペコードを変更する．
+  NOTE: 他の2項演算子で既に入れ替えられている場合は，入れ替えない．
+4.
+
+buildTraceVectorについて．なんで関数の引数になるような命令を記録しているんだ．
+ループ内の命令だけ記録すればいいのに→initの初期値はループ外にあるため．関数の引数が必要になるのはinitの記録から命令をビルドするときだけ．
+なぜリダクションの場合はインクリメント値を，絶対値にしなくていいんだ？→ループカウンタは，スレッドローカルにすすめる際，元とは異なるインクリメントをする可能性がある（LB<UBとなるようにスレッドローカルのLB,UB,INCを変更しているため）．
+それに対してリダクションは，ループ本体内ではオリジナルと同じコードを使用する．
+そのため，絶対値をわざわざ求めなくても，オリジナルを使えばいい．
+
+Initのトレースで記録された命令は無視されてしまう．
+だから，キャスト命令は端から記録しないようにすること．
+
+i--のループのリダクションに問題があるような記述があった．
+
+TraceVectorに記録されたもののうち，ループ内で更新されるものはBuiltValMapから削除するという処理を行っている．
+
+
+
+---
+
+${clang}++ $source -o ${number}.seq
+${clang}++ -fopenmp $source -o ${number}.omp
+echo "-- seq --"
+./${number}.seq 
+echo "-- seq --"
+./${number}.omp
+
+
+${clang}++ -S -emit-llvm $source -o $seqIR
+code $seqIR
+//#を削除
+
+$opt -licm -mem2reg -S ${seqIR} -o ${inputIR}
+code $inputIR
+//ディレクティブを挿入
+declare void @llvm.directive(metadata)
+!200 = !{!"#pragma omp parallel for"}
+;  call void @llvm.directive(metadata !200)
+//
+
+$opt -samepointerreplace -S ${inputIR} -o ${replaceIR}
+
+${opt} -S -o $outputIR $inputIR -paramget
+${clang}++ -fopenmp $outputIR -o $exefile
+
+デバッグ用
+declare i32 @printf(i8* nocapture readonly, ...) local_unnamed_addr
+@.test.int = private unnamed_addr constant [12 x i8] c"i:%d j:%d \0A\00", align 1 
+;%test1 = tail call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([12 x i8], [12 x i8]* @.test.int, i64 0, i64 0), i64 %indvars.iv.8, i64 111)
+;%elem1 = extractelement <4 x i32> %vec.phi448, i32 0
+
+
+
+実行時間比較用
+setenv workdir ~/Pollybench_git_ln/IR
+setenv POLY_HOME ${workdir}/../Polybench-OpenMP
+setenv scriptDir ${workdir}/../script
+setenv target 2mm
+${scriptDir}/diff_check_for_a_benchmark.sh $target omp
+setenv target atax
+${scriptDir}/diff_check_for_a_benchmark.sh $target omp
+setenv target covariance
+${scriptDir}/diff_check_for_a_benchmark.sh $target omp
+setenv target gemver
+${scriptDir}/diff_check_for_a_benchmark.sh $target omp
+setenv target jacobi-2d-imper
+${scriptDir}/diff_check_for_a_benchmark.sh $target omp
+setenv target 3mm
+${scriptDir}/diff_check_for_a_benchmark.sh $target omp
+setenv target bicg
+${scriptDir}/diff_check_for_a_benchmark.sh $target omp
+setenv target doitgen
+${scriptDir}/diff_check_for_a_benchmark.sh $target omp
+setenv target gesummv
+${scriptDir}/diff_check_for_a_benchmark.sh $target omp
+setenv target gemm
+${scriptDir}/diff_check_for_a_benchmark.sh $target omp
+
+解析パス実行
+$opt -licm -S ${seqIR} -o ${inputIR}
+$opt -load $llvm/../lib/LLVMMyTest.so -mytest -disable-output $inputIR
+code ${inputIR}
+
+
+コード生成パス実行
+setenv LLVM_BUILD /opt/jingukng/opt.build
+setenv LD_LIBRARY_PATH :${LLVM_BUILD}/lib
+setenv OMP_NUM_THREADS 4
+setenv llvm ${LLVM_BUILD}/bin
+setenv clang ${LLVM_BUILD}/bin/clang
+setenv opt ${LLVM_BUILD}/bin/opt
+setenv workdir ~/Pollybench_git_ln/IR
+setenv POLY_HOME ${workdir}/../Polybench-OpenMP
+setenv scriptDir ${workdir}/../script
+
+setenv target gemm
+setenv seqIR ${workdir}/${target}.seq.ll
+setenv inputIR ${workdir}/${target}.before.ll
+setenv outputIR ${workdir}/${target}.after.ll
+setenv exefile ${scriptDir}/benchmark_bin/${target}_time.ir
+${scriptDir}/IR_make.sh $target seq O0
+code $seqIR
+//kernelの#を消す
+
+$opt -licm -S ${seqIR} -o ${inputIR}
+code $inputIR
+//ディレクティブを挿入
+declare void @llvm.directive(metadata)
+!200 = !{!"#pragma omp parallel for"}
+;call void @llvm.directive(metadata !200)
+//
+
+${opt} -S -o $outputIR $inputIR -paramget
+${clang} -O3 -I $LLVM_BUILD/projects/openmp-8.0.0.src/runtime/src -I $POLY_HOME/utilities -I $POLY_HOME/linear-algebra/kernels/atax $POLY_HOME/utilities/polybench.c -DPOLYBENCH_TIME -DPOLYBENCH_DUMP_ARRAYS -fopenmp $outputIR -lm -o $exefile
+${scriptDir}/diff_check_for_a_benchmark.sh $target
+
+
+-----------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+deriche
+float型の変数が引数になるときにバグ発生
+64bit型へのZextをしようとしていた
+32bit型へのBitCastを生成するように変更し，retransformの部分でも
+
+
+
+
+--
+
+間違いに気付いた gemver
+配列ではなく，doubleのポインタをロードして使用している部分でミスがあった．
+load命令で定義されている引数はそのまま渡すようにしないか？
+//そう定義すると，int型のスカラー変数までそのまま渡すようになってしまい，独立じゃなくなる．//別にそういうIRコードを生成してもいいけど，高速なコードを目指すならスカラーはスカラーで渡して余計なロードを各スレッドに生成しないほうがいいよ．
+getelementptrで参照されているようなloadされている変数は，ポインタのポインタを引数に渡して，ロードしてから使用するようにする．
+
+createAllocaForShareInLoopで判断する．丁度loopもあるし．
+
+1.ポインタのuserを反復する
+2.GEPInstで，ループ内で使用されているかどうかを判断する．
+3.もし2の条件を満たすならば，ShareFirstValMapにそのポインタのポインタを渡す
+
+--
+割と辛い．
+double型のスカラー変数は，ポインタを確保して，そこに格納してから引数に渡すこと．
+ポインタを確保//もし既に存在するなら，そっちをしようする
+  alloca命令を生成
+  ストア命令を生成
+  引数に渡す
+各スレッドは，引数のポインタをロードする．
+  関数の先頭に，ロード命令を生成
+  後の処理ではロードした値を使用するようにマップを書き換える．
+↓
+そんなことはしなくてよかった．
+transformScalarsでFuncArgumentMapのValueをi64型に置き換えるという処理で，マップ要素の反復に使用するイテレータのValueを参照していたのがダメだった．
+マップの要素を直接参照して，i64に変換したdouble型の値を代入した所，正常に動作した．
+
+
+
+
+-----------
+解決するもの
+
+//初めての問題らしい問題//gemver//w
+配列要素のリダクションについて，loadするメモリと，storeするメモリが異なると上手く並列化できない問題．
+おそらくO3最適化すれば解決するだろうけど，もし今後同じようなコードが現れたときに...無駄．名前解決とかいらない物を削除するパスを呼び出すことを全弟にすればいいだけ．
+ポインタアクセスについて，無駄な呼び出し，別名の呼出しを削除するパスを呼び出すこと．//そんな便利なパスは存在しなかった．
+↓
+実際にポインタを入力と出力で同じメモリを指すように変更したところ，上手く実行できた．
+//問題の原因が特定できたので，とりあえず次のテストに移る
+
+
+201
+reduction(+:arrayiddx27,arrayidx15)
+
+//コード生成パス//solved
+一番始めに現れるStore命令をインクリメントだと判断しているからだめ．
+ループカウンタがphiノードで表されている場合，incrはループ内部から返ってくる値の方
+//いまコメントをつけながら修正をしているので，時間がかかっている．
+//今後の効率を良くするための投資と思ってくれ．
+
+phiノードがループカウンタの時のコードがおかしい．
+phiノードの初期値にplowerからロードした値を入れるべきなのに，別個にロードを行っている．
+
+
+
+
+
+
+
+
+
+
+
+
+-------
+ローコード開発は，どういう条件のデータを持ってくるかとか，それをどのように表示するかということを自動でやるのか？
+
+
+//-- first attack --
+依存解析はループ毎に行うこと//OK
+reductionの解析で，ループカウンタをチェックしないこと．
+2hr近くコードを見続けたけど分からなかった．手順を明確にして成功体験を築こう．  
+->ループカウンタがPHIノードの時，LoopCounterMapに登録していなかった．
+phiノードの場合，すべてがリダクションでなければならないという設定になっている．
+
+内側のループカウンタについてのReductionの判定が出来ていない．
+リダクションの判定をしなくていいものかどうかを調べる．
+inc1.lcssaは，ループ実行後のjの値をjのアドレスに入れるのに使われる．
+
+
+//try //solved
+private変数のチェックの部分でループカウンタがプライベートにすべき値になっていない->ループカウンタがphiノードで表現されているから既に各スレッドで独立に計算するようになっている．
+
+
+//try //solved //リダクションの候補でないphi命令まで判断しようとしていた
+//具体的には自身を参照していないphiノードと，内側ループのループカウンタ
+//リダクションでないphi命令が依存を引き起す可能性はある．
+  //lastprivateとかで指定しなければならない変数
+  //自分自身を参照しないので，ループの繰り返しには影響を受けない値だから，ループ繰り越しの依存は発生しない．発生するのはループ反復の一番最後で，ループとループ後の変数の依存関係．ループの実行順序で最後の値を使うならば，lastprivateにしていしなければならない．
+//
+inc1.lcssa3は，iの値をiのアドレスに入れるのに使われる．
+  こいつはiのループの繰り返し時に，渡される値．
+だから，リダクション変数の候補がphi命令で，そいつのIncomingValueが内側のループカウンタの場合，依存はそいつがprivate変数ならばOK
+-> PHIノードのIncomingValueを調べて，private変数か，ループカウンタの場合，OKなリダクションの値である．
+  そもそもinc1.lcssaはReductionの候補とすべきではない．
+  phiを全て調査するという処理のせいで，混乱を招いている．
+  何がinduction変数の候補なのか明確にすること
+
+[Reductionの候補]
+1.phi命令かload命令で表現されていること
+2.リダクション演算子で表現されていること//別にそれは条件じゃなくない？
+3.それ自身を参照するような(AddRecExpr)形になっていること．
+//自身のUserをたどって行き，自分自身にたどり着くかどうか
+
+
+Userを取得
+Userがループ内であるならば，そのUserを更にたどる(再帰呼び出し))
+UserがStore命令なら，メモリの名前が同じである事を確認する．
+Userがphi命令なら，phi命令の名前が同じである事を確認する．
+
+          //-- FIXME: in next step, we should specify the value whose value is used after loop as "lastprivate"
+          //but now, we just ignore this. This cause the error in parallel execution.
+          else if( PHIN )
+
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////////////
+setenv target gesummv
+setenv seqIR ~/Pollybench/git_upload/IR/${target}.seq.ll
+setenv inputIR ~/Pollybench/git_upload/IR/${target}.licm.seq.ll
+
+$opt -licm -S ${seqIR} -o ${inputIR}
+$opt -load $llvm/../lib/LLVMMyTest.so -mytest -disable-output $inputIR
+
+
+
+
+問題：PHINodeでループカウンタが表されている場合の，リダクション変数の決定方法が実装されていない．
+
+
+phiノードがリダクション変数のUserだった時に，適当にやる．
+そのphiノードのUserを繰り返しトレースするだけではループが発生してエラーになるということ．
+
+つまりinduction変数だから，induction変数の記録にphiノードも追加すればいい？
+
+
+リダクション変数の検出が分かり易い，gesummvでテスト中
+%tmp.addr
+%y.addr
+
+for.body: ;外側のループの本体に対応
+arrayidxがtmpを指す
+arrayidx2がyを指す
+それぞれにdouble型の0を代入している
+
+for.body5: ;内側のループ本体に対応
+arrayidx15がtmpを指す
+arrayidx27がyを指す
+
+/**
+そもそもこれらのGEPに対するアクセスはphiじゃなくてload/storeだから．
+**/
+
+
+
+
+
+
+
+
+--- 配列の添字で使われている変数が，ループ不変であることを前提とする --
+
+重要：DependencyAnalysisパスの，結果の所で，ループ独立な依存だと分からなければループ繰越し依存とする変更を加えている
+lib/Analysis/DepenenceAnalysis.cpp 
+ll.4644
+依存方向が"="でない場合，ループ独立な依存ではない．
+
+重要：関数の#0とかいうメタデータを削除して，mem2regパスと開発した解析パスを実行した結果，プライベート変数だと解析できた．
+
+/** 作業用コマンド
+  setenv LLVM_BUILD /opt/jingukng/opt.build
+  setenv LD_LIBRARY_PATH :${LLVM_BUILD}/lib
+  setenv OMP_NUM_THREADS 4
+  setenv llvm ${LLVM_BUILD}/bin
+  setenv clang ${LLVM_BUILD}/bin/clang
+  setenv opt ${LLVM_BUILD}/bin/opt
+  setenv mysrc 36_source.cpp
+  setenv mybef 36_before.ll
+  setenv myaft 36_after.ll
+
+ [opt側]
+ ~/LLVM/backup/sendmytest.sh && make LLVMMyTest
+
+ [backup側]
+  $clang $mysrc -o $mybef -O0 -S -emit-llvm &&\
+  $opt -load ${llvm}/../lib/LLVMMyTest.so -mytest $mybef -S -o $myaft &&\
+  echo OK
+**/
+
+今必要なのは，メモリにアクセスしている変数について，定数かどうかを判断し，その情報をIRに追加すること．
+そうすれば，添字で使われる変数が定数だと仮定すると，LLVMの依存解析passを使用することができる．
+
+
+
+
+
+
+
+[リダクション変数の検出]
+手順
+MyTestでreductionクローズ用の解析passを作成．
+addは特殊だという記憶がある．mulは一手間加えなくても分かったが，addは依存があるメモリアクセスのsrcを辿っていき，同じメモリからのアクセスかを考える必要がある．
+分岐命令で変わることも想定されるが，取り敢えず今は動くようにしよう．
+ 分岐命令に関しては，分岐先と分岐元の時点で，phi命令でまとめて，メモリに書き込んでいれば問題ない．
+ 分岐内でstoreしている場合については，今は考え付かないので放置する
+
+
+メモリを使っている場合は，store命令のソースバリューをみれば良い．
+1.依存を生じさせているstore命令を取得
+2.Src側の値をチェックする
+2.1.SCEVであるかどうか
+2.2.オペランドの片方は同じStore命令のDst側のポインタと同名であるか
+2.2.1.オペランドのもう片方は，その値の計算で依存が存在しないか(読み取るメモリに依存があったり，phi命令であったり)チェックする
+#phi命令については初期実装では対応しない．動くものができたらすぐに対応すること
+2.2.1.1.オペランドをチェックし，load命令なら，アクセス先が同名かチェック．
+2.2.1.2.同名でないなら依存があるかどうかをチェック．依存がないならOK.
+2.2.1.3.load命令以外の場合は，そのオペランドが定数(グローバル変数含む)か，引数であればOK.
+2.3.オペランドが命令にキャストできるならばトレースを続ける．(キャストできない場合はエラーメッセージで見てみる)
+#######ここまでテストして確認できた############
+2.4.SCEVのオペコードがリダクション可能かどうか調べる
+3.リダクション演算により依存を解消できるのであれば，その変数を並列化ディレクティブのクローズに追加する．
+
+[現状の問題点]
+(重要)ディレクティブ挿入passでは，forループかどうかを判断していない(ループカウンタの検出は行っているが，ループカウンタが存在しない場合の処理を定義していない)．
+現状だとテストしているオペランドがaddだけだし，配列参照の場合も考慮していない．subはaddと同じ実装で検出することができる事が分かった．
+注意：load命令のメモリを見る際に，依存があったとしてもそれがprivateとして指定されているならば，依存は存在しない．(依存の候補を得る処理にて，private変数を計算から除外するようにすれば対応できる)
+レジスタを使っている場合は，phi命令をみれば良い．
+データ依存が無い場合に，検出できることは分かったが，データ依存がある場合に検出してしまうケースはないのか？
+分岐命令があると，片方だけでreductionかどうかを判断するから依存があるかどうかを判断できない．
+SCEVableは右シフトとかが最後に入っている場合にリダクション変数を検出できない
+(応急手当)↑phi命令の場合は，SCEVで無いとしても，チェックするようにした．
+
+(済)(重要)リダクション変数検出passだと，subでもAddExprとして検出しているが，恐らくコード生成passだとsubの場合に対応していない．早急に対処すること．
+→リダクション演算子に+を指定すれば，ループ内の演算がsubであっても，リダクションのIRコードで+だけなので，大丈夫．
+(済)今の状態だと，同じメモリから値を読み取っているかどうかを判断していない．
+(済)依存がある変数を使っている場合，それを依存だと識別する．グローバル変数，
+(済)オペランドがaddで，スカラー変数の場合に，リダクション可能かどうかを解析ができるようにする．
+
+
+
+
+
+
+
+
+## 新規実装 ##
+
+[分岐命令を挟むreductionの対応]
+全てのStore命令を確認し，リダクション変数かどうかを確認する．
+リダクション変数がLoadされてからStoreされるまでに生成される値が，リダクション変数の計算以外で使われている場合，それは依存関係がある．
+[詳細]
+  ループ内のリダクション変数のLoad命令を見付け，その値に名前をつける．
+  リダクション変数の計算で，自分自身に対するLoadを使用する命令(I)を記録する．
+  記録した命令(I)で使われないLoad命令があるならば，依存がある．
+  リダクション変数の計算以外でLoad命令を使用している場合，依存がある．
+    ループ内の命令について，オペランドでLoad命令と同じ名前の変数を使用してる場合，それが記録されている命令(I)でないなら依存がある．
+  →ループ内のLoad命令を全て記録して，そのUseを確認し，それが記録した命令(I)でないなら依存がある．
+  記録した命令であるなら，そのUseを確認するという処理を繰り返す．
+  最終的に，Useが全てリダクションの計算であり，そのUseの中にリダクション変数へのStore命令があればOK
+
+
+CanDepMapは，依存がある変数名と，そのStore命令を1つだけ記録する．
+UsingLoadVecは，リダクション変数のLoad命令を使用している，リダクション計算中の命令のValueを格納するマップ．
+
+
+
+[phiノードへの対応]
+全てのPhi命令を確認し，リダクション変数かどうかを確認する．
+リダクション変数のPhi命令が，リダクション変数自身の計算以外で使われている場合，それは依存関係がある
+
+
+
+
+
+/** 作業用コマンド
+  setenv LLVM_BUILD /home/fss3/jingukng/LLVM/ver8.0.0/8.build
+  setenv LD_LIBRARY_PATH :${LLVM_BUILD}/lib
+  setenv OMP_NUM_THREADS 4
+  setenv llvm ${LLVM_BUILD}/bin
+  setenv clang ${LLVM_BUILD}/bin/clang
+  setenv opt ${LLVM_BUILD}/bin/opt
+  setenv mysrc 36_source.cpp
+  setenv mybef 36_before.ll
+  setenv myaft 36_after.ll
+  setenv myseq 36_seq.o
+  setenv myomp 36_omp.o
+
+  setenv mysrc 38_source.cpp
+  setenv mybef 38_before.ll
+  setenv myaft 38_after.ll
+  setenv myseq 38_seq.o
+  setenv myomp 38_omp.o
+
+  [ディレクティブ挿入pass(判断のみ)を実行する]
+  $clang $mysrc -o $mybef -O0 -S -emit-llvm &&\
+  $opt -load ${llvm}/../lib/LLVMMyTest.so -mytest $mybef -S -o $myaft &&\
+  echo OK
+
+  [並列実行が逐次と同じ結果かどうかを確認する]
+  ${clang}++ $mysrc -o $myseq && ${clang}++ $mysrc -fopenmp -o $myomp &&\
+  ./$myseq && ./$myomp
+
+  [並列コード生成passを走らせてコードを生成する]
+  $opt -paramget $myaft -S -o 37_codegen.O3.ll &\
+  $clang 37_codegen.O3.ll -fopenmp -o 37_codegen.o
+**/
+
+
+
+
+
+
+
+
+
+
+[変更点]
+コメントを
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[未解決]
+リダクション可能だと判断してはいけないものを，リダクション可能だと判断している．
+Reduction cand:  store i32 %add20, i32* %arrayidx22, align 4
+SCEV of the value stored to the reduction cand: ((%5 * %12) + (%3 * %11))
+[中略]
+Reduction-able:  %arrayidx22 = getelementptr inbounds i32, i32* %7, i64 %idxprom21
+//
+arrayidx11とarrayidx13は同じメモリを指している．
+依存解析それらが同じメモリだと判断できていないのか？->できていなかった
+同じメモリだとか分かっても，正しくリダクションできるかどうかを判断できていないから意味がない．
+->内側のループに含まれているstore命令の場合は，reductionかどうかを判断しないようにする？
+
+
+内側のループに含まれていないことを確認する
+そのループを取得して
+ある命令が含まれる一番内側のループを見つけることはできるが，それがいま参照しているループと同じかことなるかは分からない．
+
+->だとしたら，
+
+
+
+buildInitialValueOfIndexVariable(IRBuilder<> &Builder, Loop* targetLoop)を呼び出さないようにしている．リダクションに指定されていない変数の初期値を勝手につくろうとしている関数？
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

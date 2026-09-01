@@ -1,0 +1,384 @@
+\documentclass[a4paper,11pt]{ltjsarticle}
+\usepackage[margin=22mm]{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{enumitem}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{gray!8},
+  frame=single,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true
+}
+
+\title{Auto Parallel LLVM 22版 仕様書}
+\author{auto-parallel project}
+\date{2026年9月1日}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{目的と適用範囲}
+本書は、改造版LLVM 8に組み込まれていた自動並列化処理をLLVM本体から分離し、
+LLVM 22環境で外部モジュールとしてビルド・実行・検証するための現行仕様を示す。
+対象は \texttt{auto-parallel-passes} と、PolyBench/C 4.2を利用する
+\texttt{polybench} の検証スクリプトである。
+
+現段階では処理本体にLegacy Pass Manager（Legacy PM）を使用する。
+LLVM 22標準の\texttt{opt-22}からLegacy PMを直接実行せず、専用ドライバを使用する。
+New Pass Manager（New PM）用の\texttt{Plugin.cpp}は将来移行用として残すが、
+現在のビルド対象には含めない。
+
+\section{システム構成}
+\subsection{ディレクトリ構成}
+\begin{longtable}{p{0.37\linewidth}p{0.57\linewidth}}
+\toprule
+パス & 用途 \\
+\midrule
+\endhead
+\texttt{auto-parallel-passes/include/AutoParallel} & LLVM 22向けヘッダー \\
+\texttt{auto-parallel-passes/lib} & 各解析・変換パスの実装 \\
+\texttt{auto-parallel-passes/tools/LegacyDriver.cpp} & Legacy PM専用実行ドライバ \\
+\texttt{auto-parallel-passes/legacy/llvm8} & 抽出時のLLVM 8参照実装。原則として編集しない \\
+\texttt{auto-parallel-passes/build-llvm22} & CMakeビルド成果物 \\
+\texttt{polybench/polybench-c-4.2} & PolyBench/C 4.2本体 \\
+\texttt{polybench/prog/llvm22} & ベンチマーク別IR、実行ファイル、ログ、ダンプ \\
+\bottomrule
+\end{longtable}
+
+\subsection{主要コンポーネント}
+\begin{longtable}{p{0.30\linewidth}p{0.64\linewidth}}
+\toprule
+コンポーネント & 役割 \\
+\midrule
+\endhead
+\texttt{DependencyCheck} & 依存関係解析 \\
+\texttt{ReductionDetect} & リダクション変数・演算の検出 \\
+\texttt{AllPrivateDetect} & private化対象の解析 \\
+\texttt{DirectiveInsertion} & 対象ループへ自動並列化マーカーを挿入 \\
+\texttt{ParamGet} & マーカーと解析結果からOpenMPランタイム呼び出しを含むIRを生成 \\
+\texttt{AutoParallelLegacy.so} & 上記Legacyパスを含む外部共有ライブラリ \\
+\texttt{auto-parallel-legacy-driver} & LLVM 22上でLegacyパスを段階実行する専用コマンド \\
+\bottomrule
+\end{longtable}
+
+\section{パス実行方式}
+専用ドライバは入力LLVM IRを読み込み、Legacy \texttt{PassManager}へ対象の
+\texttt{ModulePass}を登録し、変換後IRを出力する。
+
+\begin{lstlisting}
+auto-parallel-legacy-driver -stage=directive -ditarget=kernel \
+  input.ll -o directive.ll
+
+auto-parallel-legacy-driver -stage=paramget -ditarget=kernel \
+  directive.ll -o parallel.ll
+\end{lstlisting}
+
+\texttt{-stage=directive}は\texttt{DirectiveInsertion}、
+\texttt{-stage=paramget}は\texttt{ParamGet}を実行する。
+\texttt{-ditarget=kernel}は現行パス側のコマンドラインオプションであり、
+PolyBenchの対象カーネル選択に使用する。
+
+\section{ディレクティブ表現}
+LLVM 8本体へ追加されていた独自\texttt{llvm.directive} intrinsicには依存しない。
+LLVM 22版では通常の宣言関数\texttt{\_\_auto\_parallel\_directive()}をマーカーとして呼び出し、
+節情報を\texttt{!auto\_parallel} metadataとしてCall命令へ付加する。
+
+この表現は\texttt{include/AutoParallel/DirectiveMarker.h}へ集約されている。
+将来、intrinsicや別形式へ戻す場合は、原則として同ヘッダーの生成・参照ヘルパーを
+変更境界とする。
+
+\section{ビルド仕様}
+\subsection{必要環境}
+\begin{itemize}[nosep]
+  \item LLVM/Clang 22（\texttt{clang-22}, \texttt{opt-22}, LLVM CMake package）
+  \item CMake 3.20以上
+  \item C++17対応コンパイラ
+  \item OpenMPヘッダーおよび\texttt{libomp}
+\end{itemize}
+
+\subsection{パス本体のビルド}
+\begin{lstlisting}
+cd ~/auto-parallel/auto-parallel-passes
+cmake -S . -B build-llvm22 \
+  -DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build-llvm22 --parallel
+\end{lstlisting}
+
+主な成果物は次の2つである。
+\begin{itemize}[nosep]
+  \item \texttt{build-llvm22/AutoParallelLegacy.so}
+  \item \texttt{build-llvm22/auto-parallel-legacy-driver}
+\end{itemize}
+
+\subsection{パス本体ビルドの内部処理}
+最初の\texttt{cmake -S . -B build-llvm22}はコンパイルそのものではなく、
+LLVM 22の構成を読み込み、ビルド規則を生成する処理である。
+\texttt{find\_package(LLVM REQUIRED CONFIG)}は
+\texttt{LLVM\_DIR}以下の\texttt{LLVMConfig.cmake}を読み込み、ヘッダー位置、
+ライブラリ、コンパイル定義を取得する。CMakeは検出したLLVMのメジャーバージョンが
+22以外の場合、構成段階で停止する。
+
+\texttt{cmake --build}では、次のソースをC++17としてコンパイルする。
+\begin{lstlisting}
+lib/DependencyCheck.cpp
+lib/ReductionDetect.cpp
+lib/AllPrivateDetect.cpp
+lib/DirectiveInsertion.cpp
+lib/ParamGet.cpp
+\end{lstlisting}
+
+同じ処理本体から2種類の成果物を生成する。
+\texttt{AutoParallelLegacy.so}は外部ロード可能なMODULEライブラリである。
+\texttt{auto-parallel-legacy-driver}は同じソースを直接リンクし、LLVM 22で
+Legacy PMを確実に起動する実行ファイルである。現行のPolyBenchスクリプトは
+共有ライブラリの存在も事前確認するが、実際の変換実行には専用ドライバを使用する。
+
+\subsection{再ビルドと並列度}
+ソース変更後は通常、構成をやり直さず次のコマンドだけでよい。
+\begin{lstlisting}
+cmake --build ~/auto-parallel/auto-parallel-passes/build-llvm22 --parallel
+\end{lstlisting}
+CMake設定またはLLVMの場所を変更した場合は、\texttt{cmake -S/-B}による再構成も行う。
+メモリ不足になる環境では\texttt{--parallel 1}を指定する。
+
+\section{PolyBench検証仕様}
+\subsection{処理フロー}
+1プログラムのコンパイルは次の順序で行う。
+\begin{enumerate}[nosep]
+  \item \texttt{clang-22 -S -emit-llvm}でLLVM IRを生成する。
+  \item \texttt{mem2reg, early-cse, loop-mssa(licm)}でIRを正規化する。
+  \item 専用ドライバの\texttt{directive}段を実行する。
+  \item LLVM verifierでディレクティブ挿入後IRを検証する。
+  \item 専用ドライバの\texttt{paramget}段を実行する。
+  \item LLVM verifierで並列化後IRを検証する。
+  \item 正規化IRから逐次版、並列化IRからOpenMP並列版を生成する。
+\end{enumerate}
+
+コンパイル時には\texttt{POLYBENCH\_TIME}と
+\texttt{POLYBENCH\_DUMP\_ARRAYS}を定義する。
+実行時は逐次版と並列版の配列ダンプを保存・画面表示し、バイト単位で比較する。
+
+\subsection{PolyBenchコンパイルの詳細}
+\texttt{compile-llvm22.sh <benchmark>}は次の5段階を順番に実行する。
+途中のコマンドが非0で終了した場合は\texttt{set -e}により直ちに停止し、
+不完全な実行ファイルを検証工程へ渡さない。
+
+\subsubsection{第1段階：CソースからLLVM IRを生成}
+対象ソースはPolyBenchツリーから
+\texttt{*/<benchmark>/<benchmark>.c}に一致する最初のファイルを検索する。
+見つからない場合は開始前に終了する。
+\begin{lstlisting}
+clang-22 -S -emit-llvm -Xclang -disable-O0-optnone \
+  -I polybench-c-4.2/utilities \
+  -DPOLYBENCH_TIME -DPOLYBENCH_DUMP_ARRAYS \
+  <benchmark>.c -o <benchmark>.ll
+\end{lstlisting}
+
+\texttt{-S -emit-llvm}は機械語ではなくテキストLLVM IRを生成する。
+\texttt{-disable-O0-optnone}は、O0生成関数へ\texttt{optnone}属性が付いて
+後段の解析・変換を妨げることを防ぐ。
+\texttt{POLYBENCH\_TIME}は実行時間、\texttt{POLYBENCH\_DUMP\_ARRAYS}は
+結果配列の出力を有効にする。
+
+\subsubsection{第2段階：解析しやすいIRへ正規化}
+\begin{lstlisting}
+opt-22 -passes='mem2reg,early-cse,loop-mssa(licm)' -S \
+  <benchmark>.ll -o <benchmark>.normalized.ll
+\end{lstlisting}
+\texttt{mem2reg}は局所変数のLoad/StoreをSSA値とPHIへ昇格する。
+\texttt{early-cse}は明白な共通部分式と重複メモリアクセスを整理する。
+\texttt{loop-mssa(licm)}はMemorySSAを利用してループ不変命令を整理する。
+この正規化により、独自パスが想定するループ、PHI、依存関係を解析しやすくする。
+
+\subsubsection{第3段階：並列化マーカーを挿入}
+\begin{lstlisting}
+auto-parallel-legacy-driver -stage=directive -ditarget=kernel \
+  <benchmark>.normalized.ll -o <benchmark>.directive.ll \
+  2> directive.log
+opt-22 -passes=verify -disable-output <benchmark>.directive.ll
+\end{lstlisting}
+\texttt{DirectiveInsertion}は対象ループを選び、通常関数呼び出しとmetadataからなる
+自動並列化マーカーを挿入する。診断出力は\texttt{directive.log}へ保存する。
+直後のverifierは、型不一致、壊れたCFG、不正なPHIなどを検出し、
+不正なIRが次段へ進むことを防ぐ。
+
+\subsubsection{第4段階：OpenMP並列IRを生成}
+\begin{lstlisting}
+auto-parallel-legacy-driver -stage=paramget -ditarget=kernel \
+  <benchmark>.directive.ll -o <benchmark>.parallel.ll \
+  2> paramget.log
+opt-22 -passes=verify -disable-output <benchmark>.parallel.ll
+\end{lstlisting}
+\texttt{ParamGet}はマーカー、ループ解析、依存関係、private/reduction情報を利用し、
+アウトライン関数、スレッドID、ループ境界、private領域、reduction処理、
+\texttt{\_\_kmpc\_*}ランタイム呼び出しを含むIRを構築する。
+診断は\texttt{paramget.log}へ保存し、生成IRを再びverifierへ通す。
+
+\subsubsection{第5段階：逐次版と並列版をリンク}
+逐次版は正規化IR、並列版は変換済みIRから生成する。
+両者に同じPolyBenchランタイム\texttt{utilities/polybench.c}と
+数学ライブラリ\texttt{-lm}をリンクする。
+\begin{lstlisting}
+clang-22 ... polybench.c <benchmark>.normalized.ll -lm \
+  -o <benchmark>.sequential
+
+clang-22 ... -fopenmp -I <OMP_INCLUDE_DIR> -L <OMP_LIBRARY_DIR> \
+  -Wl,-rpath,<OMP_LIBRARY_DIR> \
+  polybench.c <benchmark>.parallel.ll -lm \
+  -o <benchmark>.parallel
+\end{lstlisting}
+
+並列版の\texttt{-fopenmp}はOpenMPランタイムとのリンクを有効にする。
+\texttt{-I}はOpenMPヘッダー、\texttt{-L}は\texttt{libomp}の検索先、
+\texttt{-Wl,-rpath}は実行時の共有ライブラリ検索先を実行ファイルへ記録する。
+既定値はプロジェクト内の旧ビルド成果物であり、LLVM 22版OpenMPを別途用意した場合は
+\texttt{OMP\_INCLUDE\_DIR}と\texttt{OMP\_LIBRARY\_DIR}で上書きできる。
+
+\subsection{全件コンパイル時の動作}
+\texttt{compile-all-llvm22.sh}は\texttt{benchmarks-llvm22.sh}の30件を順番に処理し、
+各対象について\texttt{compile-llvm22.sh}を起動する。出力は画面へ表示すると同時に
+\texttt{prog/llvm22/<benchmark>/compile.log}へ保存する。
+
+個別コンパイルが失敗しても次の対象へ進む。各対象のPASS/FAILとログ位置を
+\texttt{prog/llvm22/compile-summary.tsv}へ記録し、1件以上失敗した場合は
+全件処理終了後に非0で終了する。このため、コンパイルエラーの調査では最初に
+集計TSVを確認し、次に対象の\texttt{compile.log}、\texttt{directive.log}、
+\texttt{paramget.log}の順に確認する。
+
+\subsection{個別プログラム}
+\begin{lstlisting}
+cd ~/auto-parallel/polybench
+./compile-llvm22.sh bicg
+OMP_NUM_THREADS=4 ./run-llvm22.sh bicg
+\end{lstlisting}
+
+一括互換コマンドは次のとおりである。
+\begin{lstlisting}
+./verify-llvm22.sh bicg
+\end{lstlisting}
+
+\subsection{全30プログラム}
+コンパイルと実行は明確に分離する。
+\begin{lstlisting}
+./compile-all-llvm22.sh
+OMP_NUM_THREADS=4 ./run-all-llvm22.sh
+\end{lstlisting}
+
+各一括スクリプトは、1件が失敗しても残りを継続する。最後に成功数・失敗数と
+TSV形式の集計ファイルを表示する。全配列ダンプを画面に表示するため出力量は大きい。
+端末出力全体も保存する場合は次を使用する。
+\begin{lstlisting}
+./run-all-llvm22.sh 2>&1 | tee all-polybench.log
+\end{lstlisting}
+
+\subsection{対象ベンチマーク}
+対象一覧は\texttt{benchmarks-llvm22.sh}で一元管理する。
+
+\small
+\begin{longtable}{llll}
+correlation & covariance & 2mm & 3mm \\
+atax & bicg & doitgen & mvt \\
+gemm & gemver & gesummv & symm \\
+syr2k & syrk & trmm & cholesky \\
+durbin & gramschmidt & lu & ludcmp \\
+trisolv & deriche & floyd-warshall & nussinov \\
+adi & fdtd-2d & heat-3d & jacobi-1d \\
+jacobi-2d & seidel-2d & & \\
+\end{longtable}
+\normalsize
+
+\section{生成物とログ}
+ベンチマーク名を\texttt{<benchmark>}とすると、主な生成物は次のとおりである。
+\begin{longtable}{p{0.54\linewidth}p{0.40\linewidth}}
+\toprule
+ファイル & 内容 \\
+\midrule
+\endhead
+\texttt{prog/llvm22/<benchmark>/<benchmark>.ll} & Clang生成IR \\
+\texttt{<benchmark>.normalized.ll} & 正規化後IR \\
+\texttt{<benchmark>.directive.ll} & マーカー挿入後IR \\
+\texttt{<benchmark>.parallel.ll} & OpenMP変換後IR \\
+\texttt{<benchmark>.sequential} & 逐次実行ファイル \\
+\texttt{<benchmark>.parallel} & 並列実行ファイル \\
+\texttt{directive.log}, \texttt{paramget.log} & 各変換段の標準エラー \\
+\texttt{sequential.dump}, \texttt{parallel.dump} & PolyBench配列ダンプ \\
+\texttt{sequential.time}, \texttt{parallel.time} & 実行時間 \\
+\texttt{result.diff} & 配列不一致時のunified diff \\
+\texttt{compile.log}, \texttt{run.log} & 全件処理時のベンチマーク別ログ \\
+\bottomrule
+\end{longtable}
+
+全件集計は\texttt{prog/llvm22/compile-summary.tsv}と
+\texttt{prog/llvm22/run-summary.tsv}へ保存する。
+
+\section{終了状態}
+\begin{longtable}{p{0.18\linewidth}p{0.76\linewidth}}
+\toprule
+終了コード & 意味 \\
+\midrule
+\endhead
+0 & コンパイル成功、または逐次版と並列版の結果が一致 \\
+1 & 入力・成果物不足、変換、IR検証、コンパイル、実行などの一般エラー \\
+2 & 逐次版と並列版の配列ダンプが不一致 \\
+その他 & 子プロセスの異常終了コード（例：シグナルによる終了） \\
+\bottomrule
+\end{longtable}
+
+全件スクリプトは各対象の終了状態を集計し、1件以上失敗した場合に最終的に非0で終了する。
+
+\section{環境変数}
+\begin{longtable}{p{0.30\linewidth}p{0.64\linewidth}}
+\toprule
+変数 & 仕様 \\
+\midrule
+\endhead
+\texttt{OMP\_NUM\_THREADS} & 並列実行のスレッド数。未指定時は4 \\
+\texttt{OMP\_INCLUDE\_DIR} & OpenMPヘッダー位置の上書き \\
+\texttt{OMP\_LIBRARY\_DIR} & \texttt{libomp}位置の上書き。リンク時のrpathにも設定 \\
+\bottomrule
+\end{longtable}
+
+\section{既知事項と将来拡張}
+\begin{itemize}
+  \item LLVM 22ではopaque pointerであるため、ポインタ型だけから要素型を復元できない。
+        型が必要なIR生成では、元命令、Alloca、Load/Store、関数シグネチャなど
+        意味を保持する情報源から明示的に取得する。
+  \item 現行の処理本体はLegacy PMで動作する。New PM化では解析処理と解析結果を分離し、
+        \texttt{PassBuilder}へ登録する必要がある。
+  \item \texttt{Plugin.cpp}はNew PM移行候補として保持されるが、現行CMake対象外である。
+  \item 既存の全件検証では\texttt{covariance}の結果不一致と
+        \texttt{gramschmidt}の\texttt{ParamGet}異常終了が観測されている。
+        スクリプト変更中に中断された対象は、\texttt{compile-all-llvm22.sh}と
+        \texttt{run-all-llvm22.sh}で再検証する。
+  \item 性能値は実行環境、入力サイズ、スレッド数に依存する。
+        本仕様のPASS条件は速度向上ではなく、IR検証成功と配列ダンプ一致である。
+\end{itemize}
+
+\section{推奨運用手順}
+\begin{lstlisting}
+# 1. パスと専用ドライバをビルド
+cd ~/auto-parallel/auto-parallel-passes
+cmake --build build-llvm22 --parallel
+
+# 2. 全ベンチマークをコンパイル
+cd ~/auto-parallel/polybench
+./compile-all-llvm22.sh
+
+# 3. 全ベンチマークを実行・比較
+OMP_NUM_THREADS=4 ./run-all-llvm22.sh 2>&1 | tee all-polybench.log
+
+# 4. 集計を確認
+column -ts $'\t' prog/llvm22/compile-summary.tsv
+column -ts $'\t' prog/llvm22/run-summary.tsv
+\end{lstlisting}
+
+\end{document}
