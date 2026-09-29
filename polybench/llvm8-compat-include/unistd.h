@@ -1,0 +1,3 @@
+#ifndef LLVM8_COMPAT_UNISTD_H
+#define LLVM8_COMPAT_UNISTD_H
+#endif

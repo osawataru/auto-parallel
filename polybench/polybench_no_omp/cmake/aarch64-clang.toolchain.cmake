@@ -8,9 +8,13 @@ set(TARGET_TRIPLE aarch64-linux-gnu)
 
 # Currently only use clang as it makes cross-compilation easier
 set(CMAKE_ASM_COMPILER_TARGET ${TARGET_TRIPLE})
-set(CMAKE_C_COMPILER clang)
+if(NOT CMAKE_C_COMPILER)
+    set(CMAKE_C_COMPILER clang)
+endif()
 set(CMAKE_C_COMPILER_TARGET ${TARGET_TRIPLE})
-set(CMAKE_CXX_COMPILER clang++)
+if(NOT CMAKE_CXX_COMPILER)
+    set(CMAKE_CXX_COMPILER clang++)
+endif()
 set(CMAKE_CXX_COMPILER_TARGET ${TARGET_TRIPLE})
 
 # Point clang sysroot to cross compilation toolchain when cross compiling

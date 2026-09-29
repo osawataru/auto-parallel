@@ -1,6 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/workspace/build/lib
+set -euo pipefail
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+root_dir=$(cd "${script_dir}/.." && pwd)
+llvm22_build_dir=${LLVM22_BUILD_DIR:-"${root_dir}/build-llvm22-dev"}
+export LD_LIBRARY_PATH="${llvm22_build_dir}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
 # all
 # correlation covariance 2mm 3mm atax bicg doitgen mvt gemm gemver gesummv symm syr2k syrk trmm cholesky durbin gramschmidt lu ludcmp trisolv deriche floyd-warshall nussinov adi fdtd-2d heat-3d jacobi-1d jacobi-2d seidel-2d

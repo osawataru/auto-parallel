@@ -1,8 +1,12 @@
 # Build outputs are reproducible and include files over GitHub's size limit.
 /build/
+/build-llvm22-dev/
 /auto-parallel-passes/build-llvm22/
 /polybench/prog/
 /polybench/polybench_no_omp/build/
+/build-auto-parallel-passes/
+/build-llvm22-auto-parallel/
+/build-llvm22.1.8/
 
 # Upstream source archives are redundant with the extracted source trees.
 /llvm-project-8.0.0.src/*.tar.xz
